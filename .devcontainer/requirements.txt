@@ -1,0 +1,15 @@
+numpy
+opencv-python
+matplotlib
+scikit-learn
+pandas
+seaborn
+tensorboard-plugin-customizable-plots
+tqdm
+plotly
+gif
+gif[matplotlib]
+gif[plotly]
+ray[all]==2.9.0
+optuna
+hyperopt
