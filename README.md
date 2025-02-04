@@ -1,6 +1,6 @@
 # Lab 5
 
-*This lab has a new requirements.txt file (in .devcontainer folder) that includes libraries not installed in previous labs. You may use a new container image for your acehub environment to have these preinstalled:* `git.antcenter.net:4567/nyielding/acehub-tensorflow-image:1.3-ray`
+*This lab has a new requirements.txt file (in .devcontainer folder) that includes libraries not installed in previous labs. You may use a new container image for your acehub environment to have these preinstalled:* `git.antcenter.net:4567/nyielding/acehub-tensorflow-image:1.3-ray` or do `pip install -Ur ./.devcontainer/requirements.txt`
 
 *You may build/use this container on your own machine by using "reopen in devcontainer" from the repo in VSCode. There are comments in the `./.devcontainer/devcontainer.json` file* 
 
@@ -9,21 +9,21 @@ In this lab we will not quite follow the 7-step process because we will be build
 Remember our problem is to identify cat pictures from the CIFAR dataset. We will still have to separate the cats from the other pictures as we did before--this applies to the **transfer learning** problem in this lab. For the problem using Ray for a hyperparam search, we will use the *full 10-class cifar10 dataset* to avoid over complicating the assignment.
 
 ## Lab Files:
-`lab5transfer.py`: (student work) Transfer learning concept and (code provided) TFRecords 
+`lab5transfer.py`: (student work) Transfer learning concept 
 
 `lab5ray.py`: (student work) Scaling up with Ray--hyperparam searching 
 
 `heatmap.ipynb`: (code provided) Demonstration of visualizing CNN insight
 
-## TensorFlow Records 
+<!-- ## TensorFlow Records OUTDATED, REMOVED TF RECORD STUDENT WORK WI25 QUARTER
 This lab give example code for using TensorFlow Records (TFRecords) in the *transfer learning* problem. While we will use the exact same data from the previous lab (the CIFAR-10 dataset) we will assume for some reason we need to read it from disk. The most likely reason for this is that the whole dataset cannot fit in RAM at once. However, we may be able to read our data in small chunks which we convert to TFRecord files. TFRecords allow us to read small chunks of TFRecord files dynamically while training and avoid reading the entire dataset into RAM at once. 
 
 Students will take the CIFAR-10 dataset and process it into TFRecords. When writing the TFRecords, only pre-process the labels. Do *NOT* scale the input data before writing the TFRecords. There should be some split of the records so that there are different dataset objects for training, validation, and testing. It should only be necessary to have about 10-20 TFRecords in total since our dataset is actually pretty small.
 
-Remember you will need to parse the TFRecords into your desired tensor shapes (like for images) and then repeat, shuffle, scale, batch, and prefetch them as necessary for training. *Code for accomplishing this is provided*. The student must use the TFRecords as the data for training in the *transfer learning* portion.
+Remember you will need to parse the TFRecords into your desired tensor shapes (like for images) and then repeat, shuffle, scale, batch, and prefetch them as necessary for training. *Code for accomplishing this is provided*. The student must use the TFRecords as the data for training in the *transfer learning* portion. -->
 
 ## Lab 4 Network
-Train your final network from Lab 4 using the TFRecords dataset instead of loading all the files at once to RAM. Verify your performance is about the same as before. 
+Train your final network from Lab 4 as a point of comparison. Verify your performance is about the same as before. 
 
 ## Pre-Trained Network
 
@@ -91,7 +91,7 @@ For grading on this portion, copy/paste the final "Trial Status" table from the 
 
 ## Student Deliverables:
 `lab5transfer.py`: 3 sets of confusion matrices with distinct file names and titles (output by `visualize_model_dataset`)
-1. lab4 model with TFRecords as baseline CMs
+1. lab4 model as baseline CMs
 2. transfer learning trained with frozen bottom layers CMs
 3. transfer learning fine tuned with unfrozen layers CMs
 

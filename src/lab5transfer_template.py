@@ -18,90 +18,7 @@ from tqdm import tqdm
 from tqdm.keras import TqdmCallback
 
 
-# the following snippet is from https://www.tensorflow.org/tutorials/load_data/tfrecord
-# The following functions can be used to convert a value to a type compatible
-# with tf.train.Example.
-
-def _bytes_feature(value):
-    """Returns a bytes_list from a string / byte."""
-    if isinstance(value, type(tf.constant(0))):
-        value = value.numpy()  # BytesList won't unpack a string from an EagerTensor.
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-
-
-def _float_feature(value):
-    """Returns a float_list from a float / double."""
-    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
-
-
-def _int64_feature(value):
-    """Returns an int64_list from a bool / enum / int / uint."""
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
-
-
-# this function was added since the _int64_feature takes a single int and not a list of ints
-def _int64_list_feature(value: typing.List[int]):
-    """Returns an int64_list from a list of bool / enum / int / uint."""
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
-
-
-# Function for reading images from disk and writing them along with the class-labels to a TFRecord file.
-def convert(x_data: np.ndarray,
-            y_data: np.ndarray,
-            out_path: Path,
-            records_per_file: int = 4500,
-            ) -> typing.List[Path]:
-    """
-    Function for reading images from disk and writing them along with the class-labels to a TFRecord file.
-
-    :param x_data: the input, feature data to write to disk
-    :param y_data: the output, label, truth data to write to disk
-    :param out_path: File-path for the TFRecords output file.
-    :param records_per_file: the number of records to use for each file
-    :return: the list of tfrecord files created
-    """
-
-    if not os.path.exists(out_path):
-        os.makedirs(out_path)
-
-    # Open a TFRecordWriter for the output-file.
-    record_files = []
-    n_samples = x_data.shape[0]
-    # Iterate over all the image-paths and class-labels.
-    n_tfrecord_files = int(np.ceil(n_samples / records_per_file))
-    for idx in tqdm(range(n_tfrecord_files),
-                    desc="Convert Batch",
-                    total=n_tfrecord_files,
-                    position=0):
-        record_file = out_path / f'train{idx}.tfrecord'
-        record_files.append(record_file)
-        slicer = slice(idx * records_per_file, (idx + 1) * records_per_file)
-        with tf.io.TFRecordWriter(str(record_file)) as writer:
-            for x_sample, y_sample in tqdm(zip(x_data[slicer], y_data[slicer]),
-                                           desc="Convert Image in batch",
-                                           total=records_per_file,
-                                           position=1,
-                                           leave=False):
-                # Convert the ndarray of the image to raw bytes. note this is bytes encodes as uint8 types
-                img_bytes = x_sample.tostring()
-                # Create a dict with the data we want to save in the
-                # TFRecords file. You can add more relevant data here.
-                data = {
-                    'image': _bytes_feature(img_bytes),
-                    'label': _int64_list_feature(y_sample)
-                }
-                # Wrap the data as TensorFlow Features.
-                feature = tf.train.Features(feature=data)
-                # Wrap again as a TensorFlow Example.
-                example = tf.train.Example(features=feature)
-                # Serialize the data.
-                serialized = example.SerializeToString()
-                # Write the serialized data to the TFRecords file.
-                writer.write(serialized)
-    return record_files
-
-
-def convert_datasets(base_dir: Path):
+def get_convert_datasets(batch_size=32):
     # label_names = {
     #     0: 'airplane',
     #     1: 'automobile',
@@ -117,86 +34,39 @@ def convert_datasets(base_dir: Path):
     cat_indices = [3]
     (x_train, y_train_raw), (x_test, y_test_raw) = cifar10.load_data()
 
-    # make folders for train and test
-    base_train_dir = base_dir / 'train'
-    base_test_dir = base_dir / 'test'
+    # Normalize pixel values to [0,1]
+    x_train = x_train.astype('float32') / 255.0
+    x_test = x_test.astype('float32') / 255.0
 
     # convert the ray labels of 10 classes to our binary cat or not cat labels
-    y_train_cats = None # FIXME: same as lab 4
-    y_test_cats = None # FIXME: same as lab 4
+    y_train_cats = None # FIXME: as in lab 4 convert to binary labels
+    y_test_cats = None# FIXME: as in lab 4 convert to binary labels
 
-    # convert the numpy arrays to tfrecords
-    train_files = convert(x_data=x_train, y_data=y_train_cats, out_path=base_train_dir)
-    test_files = convert(x_data=x_test, y_data=y_test_cats, out_path=base_test_dir)
+    # Create training dataset
+    train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train_cats))
+    train_dataset = train_dataset.shuffle(buffer_size=1024)
+    train_dataset = train_dataset.repeat()
+    train_dataset = train_dataset.batch(batch_size)
+    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
 
-    return train_files, test_files
+    # Create test dataset
+    test_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test_cats))
+    test_dataset = test_dataset.batch(batch_size)
+    test_dataset = test_dataset.prefetch(tf.data.AUTOTUNE)
 
+    return train_dataset, test_dataset
 
-def get_dataset(filenames: typing.List[Path], img_shape: tuple) -> tf.data.Dataset:
-    """
-    This function takes the filenames of tfrecords to process into a dataset object
-    The _parse_function takes a serialized sample pulled from the tfrecord file and
-    parses it into a sample with x (input) and y (output) data, thus a full sample for training
-
-    This function will not do any scaling, batching, shuffling, or repeating of the dataset
-
-    :param filenames: the file names of each tf record to process
-    :param img_shape: the size of the images a width, height, channels
-    :return: the dataset object made from the tfrecord files and parsed to return samples
-    """
-
-    def _parse_function(serialized):
-        """
-        This function parses a serialized object into tensor objects to use for training
-        NOTE: you must use tensorflow functions in this section
-        using non-tensorflow function will not get the results you expect and/or hinder performance
-        see how each function starts with `tf.` meaning the function is form the tensorflow library
-        """
-        features = {
-            'image': tf.io.FixedLenFeature([], tf.string),
-            'label': tf.io.FixedLenFeature([], tf.int64)
-        }
-        # Parse the serialized data so we get a dict with our data.
-        parsed_example = tf.io.parse_single_example(serialized=serialized,
-                                                    features=features)
-        # convert the image shape to a tensorflow object
-        image_shape = tf.stack(img_shape)
-
-        # get the raw feature bytes
-        image_raw = parsed_example['image']
-        # Decode the raw bytes so it becomes a tensor with type.
-        image_inside = tf.io.decode_raw(image_raw, tf.uint8)
-        # cast to float32 for GPU operations
-        image_inside = tf.cast(image_inside, tf.float32)
-        # reshape to correct image shape
-        image_inside = tf.reshape(image_inside, image_shape)
-
-        # get the label and convert it to a float32
-        label = tf.cast(parsed_example['label'], tf.float32)
-
-        # return a single tuple of the (features, label)
-        return image_inside, label
-
-    # the tf functions takes string names not path objects, so we have to convert that here
-    filenames_str = [str(filename) for filename in filenames]
-    # make a dataset from slices of our file names
-    files_dataset = tf.data.Dataset.from_tensor_slices(filenames_str)
-
-    # make an interleaved reader for the TFRecordDataset files
-    # this will give us a stream of the serialized data interleaving from each file
-    dataset = files_dataset.interleave(map_func=lambda x: tf.data.TFRecordDataset(x),
-                                       # 12 was picked for the cycle length because there were 12 total files,
-                                       # and I wanted to cycle through all of them
-                                       cycle_length=12,  # how many files to cycle through at once
-                                       block_length=1,  # how many samples from each file to get
-                                       num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                                       deterministic=False)
-
-    # Parse the serialized data in the TFRecords files.
-    # This returns TensorFlow tensors for the image and labels.
-    dataset = dataset.map(map_func=_parse_function,
-                          num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    return dataset
+def val_split_dataset(dataset, validation_split=0.2):
+    # Calculate the number of samples
+    total_size = sum(1 for _ in dataset)
+    val_size = int(total_size * validation_split)
+    train_size = total_size - val_size
+    
+    # Split the dataset
+    train_ds = dataset.take(train_size)
+    val_ds = dataset.skip(train_size)
+    
+    return train_ds, val_ds    
 
 
 def plot_confusion_matrix(cm, classes,
@@ -255,7 +125,7 @@ def visualize_model(model: Model,
     """
     y_pred = model.predict(x_visualize)
     y_pred = np.array(y_pred > 0.5, dtype=int)
-    y_true = y_visualize
+    y_true = y_visualize.reshape(-1,1)
     class_names = ['not cat', 'cat']
 
     print(sklearn.metrics.classification_report(y_true, y_pred, target_names=class_names))
@@ -327,43 +197,11 @@ def main():
 
     show_metrics_for_valid_dataset = True
 
-    # get tfrecord file names (and create if necessary
-    if force_make_tfrecords or not os.path.exists(base_dir):
-        train_files, test_files = convert_datasets(base_dir)
-    else:
-        train_files = [base_dir / 'train' / file_name for file_name in os.listdir(base_dir / 'train')]
-        test_files = [base_dir / 'test' / file_name for file_name in os.listdir(base_dir / 'test')]
+    # get the datasets
+    train_dataset, test_dataset = get_convert_datasets(batch_size)
 
-    # set aside some training files for validation
-    valid_files = train_files[-int(len(train_files) * validation_split):]
-
-    # make the tf datasets from the files
-    train_dataset: tf.data.Dataset = get_dataset(train_files, img_shape=data_img_shape)
-    valid_dataset: tf.data.Dataset = get_dataset(valid_files, img_shape=data_img_shape)
-    test_dataset: tf.data.Dataset = get_dataset(test_files, img_shape=data_img_shape)
-
-    # function to do the scaling on our images (this is just another possible way of doing it)
-    def mapper(image_inside_batched, label):
-        image_inside_batched = image_inside_batched / 128.  # scale from 0 to 2
-        image_inside_batched = image_inside_batched - 1  # Zero-center
-        return image_inside_batched, label
-
-    # repeat, shuffle, scale, batch, and prefetch the datasets in a function
-    def repeat_shuffle_scale_batch_prefetch_dataset(dataset: tf.data.Dataset):
-        # repeat
-        dataset = dataset.repeat()
-        # shuffle
-        dataset = dataset.shuffle(buffer_size=batch_size * num_shuffle_batches)
-        # map
-        dataset = dataset.map(map_func=mapper, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        # chain together batch and prefetch
-        dataset = dataset.batch(batch_size=batch_size).prefetch(1)
-        return dataset
-
-    # process our datasets in a pipeline
-    train_dataset = repeat_shuffle_scale_batch_prefetch_dataset(train_dataset)
-    valid_dataset = repeat_shuffle_scale_batch_prefetch_dataset(valid_dataset)
-    test_dataset = repeat_shuffle_scale_batch_prefetch_dataset(test_dataset)
+    # # set aside some training files for validation
+    train_dataset, valid_dataset = val_split_dataset(train_dataset, validation_split=validation_split)
 
     # check our dataset by visualizing it. Note this can go forever if you let it
     # NOTE: this does not work on acehub
